@@ -111,6 +111,7 @@ const app = express();
       const currentWatchlist = await db.getWatchlist();
 
       let analysisResult: any = null;
+      let engineUsed: string = 'nodejs-multisignal';
       const pyUrl = process.env.PYTHON_SERVICE_URL;
 
       // Attempt FastAPI microservice if configured
@@ -133,9 +134,14 @@ const app = express();
           if (pyRes.ok) {
             const pyData = await pyRes.json();
             analysisResult = pyData;
+            engineUsed = 'python-standalone';
+          } else {
+            // Python service returned error, will fallback
+            console.warn('[PHISHTRAP API] Python service returned error, falling back to Node.js engine');
           }
-        } catch {
-          // Fallback to built-in TypeScript engine seamlessly
+        } catch (err: any) {
+          // Python service unreachable, will fallback
+          console.warn('[PHISHTRAP API] Python service unreachable, falling back to Node.js engine:', err.message);
         }
       }
 
@@ -158,8 +164,18 @@ const app = express();
           matchedBrand: result.matchedBrand,
           reasons: result.reasons,
           timestamp,
-          engineUsed: 'nodejs-multisignal',
+          engineUsed,
+          analysisMeta: result.analysisMeta,
         };
+      } else {
+        // Python engine was used - ensure it has scanId and timestamp
+        if (!analysisResult.scanId) {
+          analysisResult.scanId = 'scn_' + Math.random().toString(36).substring(2, 12);
+        }
+        if (!analysisResult.timestamp) {
+          analysisResult.timestamp = new Date().toISOString();
+        }
+        analysisResult.engineUsed = engineUsed;
       }
 
       // Persist scan report to store

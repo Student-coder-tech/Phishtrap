@@ -79,6 +79,15 @@ export interface AnalysisOutput {
   matchedBrand: string | null;
   reasons: string[];
   engineUsed: 'nodejs-multisignal';
+  analysisMeta: {
+    liveProbesPerformed: {
+      dns: boolean;
+      tls: boolean;
+      redirect: boolean;
+    };
+    signalsComputed: string[];
+    mode: 'STATIC_ANALYSIS' | 'LIVE_ANALYSIS';
+  };
 }
 
 // High-abuse Top-Level Domains frequently utilized in fast-flux phishing campaigns
@@ -109,7 +118,8 @@ export const KNOWN_BRANDS = [
   { name: 'Dropbox', domain: 'dropbox.com', category: 'Cloud & SaaS', keywords: ['dropbox', 'drop-box', 'dropbox-share'] },
   { name: 'DHL / FedEx', domain: 'dhl.com', category: 'Logistics', keywords: ['dhl-track', 'fedex-delivery', 'parcel-tracking', 'usps-tracking', 'dhl-parcel'] },
   { name: 'Internal Revenue Service (IRS)', domain: 'irs.gov', category: 'Government', keywords: ['irs-gov', 'irs-tax', 'irs-refund', 'tax-refund'] },
-  { name: 'Steam / Valve', domain: 'steampowered.com', category: 'Gaming', keywords: ['steamcommunity', 'steampowered', 'steam-trade', 'steam-gift'] }
+  { name: 'Steam / Valve', domain: 'steampowered.com', category: 'Gaming', keywords: ['steamcommunity', 'steampowered', 'steam-trade', 'steam-gift'] },
+  { name: 'GitHub', domain: 'github.com', category: 'Code Hosting', keywords: ['github', 'githubusercontent', 'github-enterprise'] },
 ];
 
 // Suspicious social-engineering & credential-theft keywords categorized by intent
@@ -138,6 +148,98 @@ const HOMOGLYPH_MAP: Record<string, string> = {
   '\u03BD': 'v', // Greek Small Letter Nu
   '\u03C1': 'p', // Greek Small Letter Rho
 };
+
+// Common character substitutions used in typosquatting
+const CHAR_SUBSTITUTIONS: Record<string, string[]> = {
+  'a': ['4', '@', '\u0430', '\u03B1'],
+  'b': ['8', '6', '\u0432'],
+  'c': ['(', '[', '{', '<', '\u0441', '\u03B8'],
+  'd': ['|)', '|}', 'cl', 'dl'],
+  'e': ['3', '\u0435', '\u03B5'],
+  'f': ['ph', '|='],
+  'g': ['9', '6', 'q'],
+  'h': ['#', '|-|', ']-[' , '}{'],
+  'i': ['1', '!', '|', '\u0456', '\u03B9'],
+  'j': ['_|', '_/', '\u0458'],
+  'k': ['|<', '|{', '|X'],
+  'l': ['1', '|', '_', '|_', '|-'],
+  'm': ['/\\/\\', '|\\/|', '[]V[]', '(v)'],
+  'n': ['|\\|', '/\\/', '[]\\[]', '|V|'],
+  'o': ['0', '()', '[]', '<>', '\u043E', '\u03BF'],
+  'p': ['|>', '|*', '9', '|"', '|7'],
+  'q': ['(_,)', '9', '0,'],
+  'r': ['|2', '|?', '|^', '\u0440', '\u03C1'],
+  's': ['5', '$', 'z', '\u0455', '\u03C3'],
+  't': ['7', '+', '|_|', '|`|'],
+  'u': ['(_)', '|_|', 'v', '\u0443', '\u03BC'],
+  'v': ['\\/', '|/', '\u03BD'],
+  'w': ['\\/\\/', '\\/\\/', 'vv', '|/\\/|'],
+  'x': ['><', '}{', '*)', '|><|', '\u0445'],
+  'y': ['`/', '\\/|', '\u0443', '\u03C5'],
+  'z': ['2', '7_', '>_', '%'],
+};
+
+// Private IP ranges that should not be treated as internet phishing
+const PRIVATE_IP_RANGES = [
+  { start: ipToInt('10.0.0.0'), end: ipToInt('10.255.255.255') },
+  { start: ipToInt('172.16.0.0'), end: ipToInt('172.31.255.255') },
+  { start: ipToInt('192.168.0.0'), end: ipToInt('192.168.255.255') },
+  { start: ipToInt('127.0.0.0'), end: ipToInt('127.255.255.255') },
+  { start: ipToInt('169.254.0.0'), end: ipToInt('169.254.255.255') },
+  { start: ipToInt('0.0.0.0'), end: ipToInt('0.255.255.255') },
+];
+
+function ipToInt(ip: string): number {
+  return ip.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0) >>> 0;
+}
+
+function isPrivateIP(ip: string): boolean {
+  const ipInt = ipToInt(ip);
+  return PRIVATE_IP_RANGES.some(range => ipInt >= range.start && ipInt <= range.end);
+}
+
+// Known legitimate domains where login/auth paths are expected
+const LEGITIMATE_AUTH_DOMAINS = new Set([
+  'github.com', 'gitlab.com', 'bitbucket.org',
+  'google.com', 'accounts.google.com', 'myaccount.google.com',
+  'microsoft.com', 'login.microsoftonline.com', 'account.microsoft.com', 'microsoftonline.com',
+  'apple.com', 'appleid.apple.com', 'icloud.com',
+  'amazon.com', 'aws.amazon.com', 'sellercentral.amazon.com',
+  'paypal.com', 'www.paypal.com',
+  'facebook.com', 'fb.com', 'instagram.com',
+  'twitter.com', 'x.com',
+  'linkedin.com', 'www.linkedin.com',
+  'dropbox.com', 'www.dropbox.com',
+  'slack.com', 'office.com', 'outlook.com',
+  'adobe.com', 'creativecloud.adobe.com',
+  'atlassian.com', 'jira.atlassian.com',
+  'salesforce.com', 'login.salesforce.com',
+  'zoom.us', 'webex.com',
+  'notion.so', 'figma.com', 'miro.com',
+]);
+
+// Known legitimate hosting platforms where user subdomains are expected
+// These should NOT trigger subdomain injection alerts
+const LEGITIMATE_HOSTING_PLATFORMS = new Set([
+  'blogspot.com', 'blogger.com',
+  'github.io', 'github.dev', 'githubusercontent.com',
+  'azurewebsites.net', 'cloudapp.net',
+  'herokuapp.com', 'heroku.com',
+  'vercel.app', 'now.sh',
+  'netlify.app', 'netlify.com',
+  'surge.sh', 'glitch.me',
+  'pages.dev', 'cloudflareworkers.com',
+  'fly.dev', 'render.com', 'onrender.com',
+  'firebaseapp.com', 'web.app',
+  'codesandbox.io', 'stackblitz.com', 'replit.com',
+  'codepen.io', 'jsfiddle.net', 'codeanywhere.com',
+  'gitpod.io', 'vscode.dev',
+  'myshopify.com', 'shopify.com',
+  'wordpress.com', 'wp.com',
+  'squarespace.com', 'wixsite.com', 'wix.com',
+  'okta.com', 'auth0.com', 'amazoncognito.com', 'cognito-identity.amazonaws.com',
+  'keycloak.org', 'keycloak.com',
+]);
 
 export function calculateEntropy(text: string): number {
   if (!text) return 0;
@@ -196,6 +298,9 @@ export function parseUrl(rawInput: string) {
       }
     }
 
+    const isRawIp = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) || hostname.startsWith('[');
+    const isPrivateIp = isRawIp && isPrivateIP(hostname);
+
     return {
       raw: rawInput,
       fullUrl: parsed.toString(),
@@ -213,13 +318,28 @@ export function parseUrl(rawInput: string) {
       isPunycode,
       hasHomoglyphs,
       homoglyphMatches,
-      hasAuthAtSymbol: rawInput.includes('@'),
-      isRawIp: /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) || hostname.startsWith('['),
+      hasAuthAtSymbol: (() => {
+        const atIndex = rawInput.indexOf('@');
+        const schemeEnd = rawInput.indexOf('://');
+        if (atIndex === -1) return false;
+        if (schemeEnd === -1) return true; // No scheme, assume authority
+        const authorityStart = schemeEnd + 3;
+        const pathStart = rawInput.indexOf('/', authorityStart);
+        const authorityEnd = pathStart === -1 ? rawInput.length : pathStart;
+        return atIndex > schemeEnd && atIndex < authorityEnd;
+      })(),
+      isRawIp,
+      isPrivateIp,
     };
   } catch {
     const stripped = rawInput.replace(/^[a-zA-Z]+:\/\//, '').split('/')[0].toLowerCase();
     const parts = stripped.split('.');
     const tld = parts.length > 1 ? parts[parts.length - 1] : '';
+    const isRawIp = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(stripped);
+    const isPrivateIp = isRawIp && isPrivateIP(stripped);
+    const atIndex = rawInput.indexOf('@');
+    const schemeEnd = rawInput.indexOf('://');
+    const hasAuthAtSymbol = atIndex > -1 && (schemeEnd === -1 || atIndex > schemeEnd) && atIndex < rawInput.indexOf('/', (schemeEnd === -1 ? 0 : schemeEnd + 3));
     return {
       raw: rawInput,
       fullUrl: 'https://' + stripped,
@@ -237,8 +357,9 @@ export function parseUrl(rawInput: string) {
       isPunycode: stripped.includes('xn--'),
       hasHomoglyphs: false,
       homoglyphMatches: [],
-      hasAuthAtSymbol: rawInput.includes('@'),
-      isRawIp: /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(stripped),
+      hasAuthAtSymbol,
+      isRawIp,
+      isPrivateIp,
     };
   }
 }
@@ -425,13 +546,19 @@ export async function runMultiSignalEngine(
   const urlEvidence: Record<string, any> = {
     length: parsed.fullUrl.length,
     isRawIp: parsed.isRawIp,
+    isPrivateIp: parsed.isPrivateIp,
     hasAuthAtSymbol: parsed.hasAuthAtSymbol,
     pathLevels: parsed.pathname.split('/').filter(Boolean).length,
   };
 
   if (parsed.isRawIp) {
-    urlScore += 75;
-    urlFlags.push('Raw numeric IP address utilized as host (circumvents domain reputation)');
+    if (parsed.isPrivateIp) {
+      urlScore += 30;
+      urlFlags.push('Private/reserved IP address used as host (internal network, not internet phishing)');
+    } else {
+      urlScore += 75;
+      urlFlags.push('Raw numeric IP address utilized as host (circumvents domain reputation)');
+    }
   }
   if (parsed.hasAuthAtSymbol) {
     urlScore += 65;
@@ -479,9 +606,10 @@ export async function runMultiSignalEngine(
     hostFlags.push(`Elevated character entropy (${entropy})`);
   }
 
+  // Suspicious TLD is a supporting signal, not proof of phishing
   if (SUSPICIOUS_TLDS.has(tld)) {
-    hostScore += 40;
-    hostFlags.push(`Operates under high-abuse top-level domain (.${tld})`);
+    hostScore += 15; // Reduced from 40 - supporting signal only
+    hostFlags.push(`Operates under high-abuse top-level domain (.${tld}) - supporting indicator`);
   }
 
   const hyphenCount = (hostname.match(/-/g) || []).length;
@@ -521,11 +649,18 @@ export async function runMultiSignalEngine(
     }
   }
 
+  // Check if the hostname's registrable domain matches a known brand
+  const hostnameRegistrableDomain = parsed.rootDomain;
+
+  // Check if this is a known legitimate auth domain (e.g., login.microsoftonline.com)
+  const isKnownLegitAuthDomain = LEGITIMATE_AUTH_DOMAINS.has(hostnameRegistrableDomain) ||
+    Array.from(LEGITIMATE_AUTH_DOMAINS).some(d => hostnameRegistrableDomain.endsWith('.' + d));
+
   for (const brand of allMonitoredBrands) {
     const brandDomain = brand.domain.toLowerCase();
     const legitRoot = brandDomain.split('.').slice(-2).join('.');
 
-    // Exact genuine host or authorized subdomain
+    // Exact genuine host or authorized subdomain (e.g., paypal.com, login.paypal.com, accounts.google.com)
     if (hostname === brandDomain || hostname.endsWith('.' + brandDomain)) {
       brandScore = 0;
       matchedBrand = brand.name;
@@ -536,41 +671,175 @@ export async function runMultiSignalEngine(
       break;
     }
 
-    // Keyword presence on unauthorized root
-    for (const kw of brand.keywords) {
-      if (kw && kw.length >= 3 && hostname.includes(kw)) {
-        brandScore = 95;
+    // Skip brand impersonation checks for known legitimate auth domains
+    // (e.g., login.microsoftonline.com is a legitimate Microsoft auth domain even though registrable domain differs)
+    if (isKnownLegitAuthDomain && hostnameRegistrableDomain !== legitRoot) {
+      // Check if THIS brand is related to the CURRENT hostname's registrable domain
+      // e.g., microsoftonline.com -> Microsoft 365 (microsoft is prefix of microsoftonline)
+      const brandKeywordsLower = brand.keywords.map(k => k.toLowerCase());
+      const currentDomainLabel = hostnameRegistrableDomain.split('.')[0];
+      const brandPrimaryName = brand.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+      
+      // Check if any brand keyword is a prefix of the current domain label
+      // or if current domain label is a prefix of a brand keyword
+      const authDomainBrandMatch = 
+        brandKeywordsLower.some(kw => currentDomainLabel.startsWith(kw) || kw.startsWith(currentDomainLabel)) ||
+        currentDomainLabel.startsWith(brandPrimaryName) ||
+        brandPrimaryName.startsWith(currentDomainLabel);
+      if (authDomainBrandMatch) {
+        brandScore = 0;
         matchedBrand = brand.name;
-        brandExp = `Unauthorized domain explicitly embeds protected brand identity "${brand.name}".`;
-        brandEvidence.embeddedKeyword = kw;
+        isLegitimateBrandEndpoint = true;
+        brandExp = `Verified legitimate authentication domain for ${brand.name} (${hostnameRegistrableDomain}).`;
+        brandEvidence.verifiedAuthorized = true;
         brandEvidence.brand = brand.name;
+        brandEvidence.legitAuthDomain = hostnameRegistrableDomain;
         break;
       }
     }
 
-    if (brandScore >= 90) break;
-
-    // Subdomain injection check (e.g., login.paypal.com.attacker.com)
-    if (parsed.subdomain.includes(legitRoot) || parsed.subdomain.includes(brand.name.toLowerCase())) {
-      brandScore = 95;
-      matchedBrand = brand.name;
-      brandExp = `Subdomain injection attack detected targeting "${brand.name}".`;
-      brandEvidence.subdomainSpoof = true;
-      break;
+    // Check for subdomain injection attack: brand name appears in subdomain but registrable domain is different
+    // e.g., login.paypal.com.attacker.com -> subdomain="login.paypal", rootDomain="attacker.com"
+    // e.g., github.com.phishersite.com -> subdomain="github", rootDomain="phishersite.com"
+    const subdomainLower = parsed.subdomain.toLowerCase();
+    const brandNameLower = brand.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const legitRootLabel = legitRoot.split('.')[0]; // e.g., "github" from "github.com"
+    
+    // Check if subdomain contains the legitimate root domain OR the primary label OR brand name
+    const subdomainContainsBrand = subdomainLower && (
+      subdomainLower.includes(legitRoot) || 
+      subdomainLower.includes(legitRootLabel) ||
+      subdomainLower.includes(brandNameLower)
+    );
+    
+    if (subdomainContainsBrand) {
+      // Only flag if the root domain is NOT the legitimate brand domain
+      // AND not a known legitimate hosting platform where user subdomains are expected
+      const registrableDomain = hostnameRegistrableDomain;
+      const isLegitHostingPlatform = LEGITIMATE_HOSTING_PLATFORMS.has(registrableDomain) ||
+        Array.from(LEGITIMATE_HOSTING_PLATFORMS).some(p => registrableDomain.endsWith('.' + p));
+      
+      if (hostnameRegistrableDomain !== legitRoot && !isLegitHostingPlatform) {
+        brandScore = 95;
+        matchedBrand = brand.name;
+        brandExp = `Subdomain injection attack detected: "${brand.name}" appears in subdomain but registrable domain is "${hostnameRegistrableDomain}".`;
+        brandEvidence.subdomainSpoof = true;
+        brandEvidence.brand = brand.name;
+        brandEvidence.legitRoot = legitRoot;
+        brandEvidence.actualRoot = hostnameRegistrableDomain;
+        break;
+      }
     }
 
-    // Typosquatting check via Levenshtein distance on primary label
+    // Typosquatting check: compare root domain label against legitimate brand root label
+    // Also check against brand keywords that are domain-like (e.g., "facebook", "google")
     const currentRootLabel = parsed.rootDomain.split('.')[0];
-    const legitRootLabel = legitRoot.split('.')[0];
-    if (currentRootLabel.length >= 4 && legitRootLabel.length >= 4) {
-      const dist = levenshteinDistance(currentRootLabel, legitRootLabel);
-      if (dist === 1) {
-        brandScore = 85;
-        matchedBrand = brand.name;
-        brandExp = `High similarity typosquatting (edit distance 1) to brand "${brand.name}".`;
-        brandEvidence.editDistance = 1;
-        brandEvidence.brand = brand.name;
-        break;
+    
+    // Build list of legitimate labels to compare against
+    const legitLabelsToCheck: Array<{ label: string; source: string }> = [
+      { label: legitRoot.split('.')[0], source: 'domain' }
+    ];
+    
+    // Add brand keywords that look like domain names (single word, no hyphens, length >= 4)
+    // But exclude typo variations of the primary brand name to avoid false positives
+    // (e.g., "paypal" vs "paypai" - don't flag exact brand as typo of its typo variation)
+    const brandPrimaryName = brand.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+    for (const kw of brand.keywords) {
+      if (kw && kw.length >= 4 && !kw.includes('-') && !kw.includes('.')) {
+        // Skip if this keyword is a typo variation of the primary brand name
+        const distToPrimary = levenshteinDistance(kw, brandPrimaryName);
+        if (distToPrimary <= 2) {
+          continue; // This is a typo variation, not a legitimate brand identifier
+        }
+        legitLabelsToCheck.push({ label: kw, source: 'keyword' });
+      }
+    }
+    
+    for (const legitCheck of legitLabelsToCheck) {
+      const legitRootLabel = legitCheck.label;
+      if (currentRootLabel.length >= 4 && legitRootLabel.length >= 4 && currentRootLabel !== legitRootLabel) {
+        // Check Levenshtein distance
+        const dist = levenshteinDistance(currentRootLabel, legitRootLabel);
+        
+        // Check for character substitution patterns
+        let substitutionScore = 0;
+        let substitutionDetails: string[] = [];
+        for (let i = 0; i < Math.min(currentRootLabel.length, legitRootLabel.length); i++) {
+          const c1 = currentRootLabel[i];
+          const c2 = legitRootLabel[i];
+          if (c1 !== c2) {
+            const subs = CHAR_SUBSTITUTIONS[c2] || [];
+            if (subs.includes(c1)) {
+              substitutionScore += 1;
+              substitutionDetails.push(`${c2}->${c1}`);
+            }
+          }
+        }
+        
+        // Length difference penalty
+        const lenDiff = Math.abs(currentRootLabel.length - legitRootLabel.length);
+        
+        if (dist === 1 && lenDiff === 0) {
+          // Single character substitution/insertion/deletion
+          brandScore = 85;
+          matchedBrand = brand.name;
+          brandExp = `Typosquatting detected (edit distance 1): "${currentRootLabel}" vs "${legitRootLabel}" (${legitCheck.source}) targeting "${brand.name}".`;
+          brandEvidence.editDistance = 1;
+          brandEvidence.brand = brand.name;
+          brandEvidence.currentLabel = currentRootLabel;
+          brandEvidence.legitLabel = legitRootLabel;
+          brandEvidence.matchSource = legitCheck.source;
+          break;
+        } else if (dist === 2 && lenDiff <= 1 && substitutionScore >= 1) {
+          // Two edits with at least one known substitution pattern
+          brandScore = 75;
+          matchedBrand = brand.name;
+          brandExp = `Likely typosquatting (edit distance 2 with character substitutions: ${substitutionDetails.join(', ')}) targeting "${brand.name}".`;
+          brandEvidence.editDistance = 2;
+          brandEvidence.substitutions = substitutionDetails;
+          brandEvidence.brand = brand.name;
+          brandEvidence.currentLabel = currentRootLabel;
+          brandEvidence.legitLabel = legitRootLabel;
+          brandEvidence.matchSource = legitCheck.source;
+          break;
+        } else if (dist <= 3 && substitutionScore >= 2) {
+          // Multiple known substitutions
+          brandScore = 70;
+          matchedBrand = brand.name;
+          brandExp = `Suspicious domain similarity (edit distance ${dist}, substitutions: ${substitutionDetails.join(', ')}) to "${brand.name}".`;
+          brandEvidence.editDistance = dist;
+          brandEvidence.substitutions = substitutionDetails;
+          brandEvidence.brand = brand.name;
+          brandEvidence.currentLabel = currentRootLabel;
+          brandEvidence.legitLabel = legitRootLabel;
+          brandEvidence.matchSource = legitCheck.source;
+          break;
+        }
+      }
+    }
+    
+    if (brandScore >= 70) break;
+
+    // Brand keyword in hostname on unauthorized domain - only if registrable domain doesn't match
+    // This is a weaker signal than typosquatting or subdomain injection
+    // Skip for legitimate hosting platforms where user subdomains are expected
+    const registrableDomain = hostnameRegistrableDomain;
+    const isLegitHostingPlatform = LEGITIMATE_HOSTING_PLATFORMS.has(registrableDomain) ||
+      Array.from(LEGITIMATE_HOSTING_PLATFORMS).some(p => registrableDomain.endsWith('.' + p));
+    
+    if (brandScore < 70 && hostnameRegistrableDomain !== legitRoot && !isLegitHostingPlatform) {
+      for (const kw of brand.keywords) {
+        if (kw && kw.length >= 4 && hostname.includes(kw)) {
+          // Weaker signal - brand keyword appearing in unauthorized domain
+          brandScore = Math.max(brandScore, 45);
+          matchedBrand = brand.name;
+          brandExp = `Brand keyword "${kw}" found in unauthorized domain (registrable domain: ${hostnameRegistrableDomain}).`;
+          brandEvidence.embeddedKeyword = kw;
+          brandEvidence.brand = brand.name;
+          brandEvidence.legitRoot = legitRoot;
+          brandEvidence.actualRoot = hostnameRegistrableDomain;
+          brandEvidence.signalType = 'keyword_in_hostname';
+        }
       }
     }
   }
@@ -600,9 +869,17 @@ export async function runMultiSignalEngine(
   const targetScanText = (hostname + parsed.path).toLowerCase();
   const matchedKeywordDetails: Array<{ word: string; category: string }> = [];
 
+  // Check if this is a known legitimate auth domain where login keywords are expected
+  const isLegitimateAuthDomain = LEGITIMATE_AUTH_DOMAINS.has(parsed.rootDomain) || 
+    Array.from(LEGITIMATE_AUTH_DOMAINS).some(d => hostname.endsWith('.' + d));
+
   for (const [cat, words] of Object.entries(KEYWORD_CATEGORIES)) {
     for (const w of words) {
       if (targetScanText.includes(w)) {
+        // Skip common auth keywords in path if on a known legitimate auth domain
+        if (isLegitimateAuthDomain && (cat === 'auth' || cat === 'credential') && parsed.pathname.includes(w)) {
+          continue;
+        }
         matchedKeywordDetails.push({ word: w, category: cat });
       }
     }
@@ -634,8 +911,10 @@ export async function runMultiSignalEngine(
   let resolvedIps: string[] = [];
   let mxRecords: string[] = [];
   let dnsResolved = false;
+  let dnsProbePerformed = false;
 
   if (mode === 'LIVE') {
+    dnsProbePerformed = true;
     const dnsResult = await performLiveDnsLookup(hostname);
     dnsResolved = dnsResult.resolved;
     resolvedIps = dnsResult.ips;
@@ -653,16 +932,11 @@ export async function runMultiSignalEngine(
       dnsExp = `Active DNS record resolution verified. Pointing to IP(s): ${resolvedIps.slice(0, 2).join(', ')}`;
     }
   } else {
-    // DEMO mode
-    if (hostScore >= 70 || brandScore >= 80) {
-      dnsScore = 75;
-      dnsStatus = 'HIGH_RISK';
-      dnsExp = 'Simulated DNS analysis: Fast-flux infrastructure or unallocated high-risk host.';
-    } else {
-      dnsScore = 5;
-      dnsStatus = 'SAFE';
-      dnsExp = 'Simulated DNS resolution: Active baseline nameservers and valid A records.';
-    }
+    // DEMO mode (Static Analysis): DNS probe not performed
+    dnsScore = null;
+    dnsStatus = 'UNAVAILABLE';
+    dnsExp = 'DNS resolution probe not performed in Static Analysis mode. Enable LIVE mode for real-time DNS verification.';
+    dnsEvidence.note = 'Static analysis only - no live DNS query executed';
   }
 
   // -------------------------------------------------------------
@@ -675,12 +949,14 @@ export async function runMultiSignalEngine(
 
   let tlsIssuer: string | undefined;
   let tlsValidTo: string | undefined;
+  let tlsProbePerformed = false;
 
   if (parsed.protocol === 'http') {
     sslScore = 80;
     sslStatus = 'HIGH_RISK';
     sslExp = 'Unencrypted plain HTTP protocol. Legitimate banking and authentication endpoints enforce TLS.';
   } else if (mode === 'LIVE') {
+    tlsProbePerformed = true;
     const tlsResult = await performLiveTlsProbe(hostname, parsed.port);
     if (tlsResult.valid) {
       tlsIssuer = tlsResult.issuer;
@@ -699,24 +975,17 @@ export async function runMultiSignalEngine(
         sslExp = `Valid TLS Certificate issued by "${tlsIssuer}" (Valid until ${tlsValidTo || 'N/A'}).`;
       }
     } else {
-      // If socket failed or port unreachable in preview
+      // If socket failed or port unreachable
       sslScore = 15;
       sslStatus = 'SAFE';
       sslExp = `HTTPS protocol configured (${tlsResult.error || 'standard TLS port'}).`;
     }
   } else {
-    // DEMO mode
-    if (brandScore >= 70 || kwScore >= 60) {
-      sslScore = 60;
-      sslStatus = 'SUSPICIOUS';
-      sslExp = 'Simulated short-lived free DV TLS certificate from automated low-trust issuer.';
-      tlsIssuer = "Let's Encrypt / Free DV CA (Simulated)";
-    } else {
-      sslScore = 0;
-      sslStatus = 'SAFE';
-      sslExp = 'Simulated high-assurance EV/OV SSL Certificate from trusted root authority.';
-      tlsIssuer = 'DigiCert Global Root CA (Simulated)';
-    }
+    // DEMO mode (Static Analysis): TLS probe not performed
+    sslScore = null;
+    sslStatus = 'UNAVAILABLE';
+    sslExp = 'TLS certificate probe not performed in Static Analysis mode. Enable LIVE mode for real-time certificate verification.';
+    sslEvidence.note = 'Static analysis only - no live TLS handshake executed';
   }
 
   // -------------------------------------------------------------
@@ -726,6 +995,7 @@ export async function runMultiSignalEngine(
   let redirStatus: 'SAFE' | 'SUSPICIOUS' | 'HIGH_RISK' | 'CRITICAL' | 'UNAVAILABLE' = 'SAFE';
   let redirExp = 'Direct endpoint resolution with no open redirect chaining.';
   const redirEvidence: Record<string, any> = {};
+  let redirectProbePerformed = false;
 
   const openRedirectParams = ['url=', 'next=', 'redirect=', 'goto=', 'dest=', 'target=', 'r=', 'return='];
   const hasOpenRedirectParam = openRedirectParams.some(p => parsed.search.toLowerCase().includes(p));
@@ -736,6 +1006,7 @@ export async function runMultiSignalEngine(
     redirExp = 'Suspicious URL query parameters indicate potential open redirect / interstitial landing attack.';
     redirEvidence.openRedirectParameter = true;
   } else if (mode === 'LIVE') {
+    redirectProbePerformed = true;
     const redirResult = await performLiveRedirectProbe(parsed.fullUrl);
     redirEvidence.hops = redirResult.hops;
     redirEvidence.status = redirResult.status;
@@ -750,8 +1021,11 @@ export async function runMultiSignalEngine(
       redirExp = 'Direct destination with no unexpected cross-domain cloaking.';
     }
   } else {
-    redirScore = 0;
-    redirStatus = 'SAFE';
+    // DEMO mode (Static Analysis): Redirect probe not performed
+    redirScore = null;
+    redirStatus = 'UNAVAILABLE';
+    redirExp = 'Redirect probe not performed in Static Analysis mode. Enable LIVE mode for real-time redirect detection.';
+    redirEvidence.note = 'Static analysis only - no live HTTP redirect check executed';
   }
 
   // -------------------------------------------------------------
@@ -827,15 +1101,67 @@ export async function runMultiSignalEngine(
 
   let overallScore = Math.round(activeWeightSum > 0 ? totalWeightedScore / activeWeightSum : 0);
 
-  // Severe single-signal overrides (e.g. active brand impersonation + credential keywords)
-  if (brandScore >= 90 && kwScore >= 40) {
-    overallScore = Math.max(overallScore, 88);
+  // Strong signal overrides for clear attack patterns
+  // These ensure that clear phishing indicators aren't dampened by safe signals
+  
+  // Subdomain injection + @ symbol + brand = critical
+  if (brandEvidence.subdomainSpoof && parsed.hasAuthAtSymbol) {
+    overallScore = Math.max(overallScore, 90);
   }
+  // Subdomain injection alone is strong
+  else if (brandEvidence.subdomainSpoof) {
+    overallScore = Math.max(overallScore, 85);
+  }
+  // Homoglyph attack
   if (punyScore >= 90) {
     overallScore = Math.max(overallScore, 85);
   }
+  // Typosquatting (edit distance 1) + credential keywords
+  if (brandEvidence.editDistance === 1 && kwScore >= 40) {
+    overallScore = Math.max(overallScore, 75);
+  }
+  // Typosquatting (edit distance 1) alone
+  else if (brandEvidence.editDistance === 1) {
+    overallScore = Math.max(overallScore, 65);
+  }
+  // Typosquatting with substitutions (edit distance 2)
+  else if (brandEvidence.editDistance === 2) {
+    overallScore = Math.max(overallScore, 55);
+  }
+  // Public raw IP + HTTP + auth keywords
+  if (parsed.isRawIp && !parsed.isPrivateIp && parsed.protocol === 'http' && kwScore >= 40) {
+    overallScore = Math.max(overallScore, 80);
+  }
+  // Public raw IP alone
+  else if (parsed.isRawIp && !parsed.isPrivateIp) {
+    overallScore = Math.max(overallScore, 60);
+  }
+  // Private raw IP (internal network concern but not internet phishing)
+  else if (parsed.isRawIp && parsed.isPrivateIp) {
+    overallScore = Math.max(overallScore, 35);
+  }
+  // Open redirect parameters
+  if (redirScore && redirScore >= 70) {
+    overallScore = Math.max(overallScore, 55);
+  }
+  // Brand keyword in hostname + suspicious TLD + keywords
+  if (brandScore >= 45 && hostScore >= 30 && kwScore >= 40) {
+    overallScore = Math.max(overallScore, 55);
+  }
+  // Brand keyword in hostname + suspicious TLD
+  else if (brandScore >= 45 && hostScore >= 30) {
+    overallScore = Math.max(overallScore, 45);
+  }
+  // Brand keyword alone (weaker signal)
+  else if (brandScore >= 45) {
+    overallScore = Math.max(overallScore, 35);
+  }
+  // Punycode without homoglyphs
+  if (punyScore >= 65 && punyScore < 90) {
+    overallScore = Math.max(overallScore, 40);
+  }
 
-  // If verified genuine organizational endpoint, clamp score to 0-5
+  // If verified genuine organizational endpoint, clamp score to 0
   if (isLegitimateBrandEndpoint || wlEvidence.isLegitimateWatchlistDomain) {
     overallScore = 0;
   }
@@ -876,7 +1202,29 @@ export async function runMultiSignalEngine(
   }
 
   const probability = Number((overallScore / 100).toFixed(2));
-  const confidence = 0.95; // Real-world multi-signal confidence metric
+
+  // Dynamic confidence calculation based on:
+  // - Number of active signals (more signals = higher confidence)
+  // - Whether live probes were performed (LIVE mode = higher confidence)
+  // - Signal agreement (consistent signals = higher confidence)
+  let confidence = 0.5; // Base confidence
+  
+  const activeSignalCount = Object.values(signalsMap).filter(v => v !== null).length;
+  const liveProbeCount = (dnsProbePerformed ? 1 : 0) + (tlsProbePerformed ? 1 : 0) + (redirectProbePerformed ? 1 : 0);
+  
+  // Increase confidence with more active signals (up to 0.15)
+  confidence += Math.min(0.15, activeSignalCount * 0.02);
+  
+  // Increase confidence with live probes (up to 0.25)
+  confidence += liveProbeCount * 0.08;
+  
+  // Higher confidence for clear-cut cases (very low or very high scores)
+  if (overallScore <= 10 || overallScore >= 85) {
+    confidence += 0.1;
+  }
+  
+  // Cap confidence
+  confidence = Math.min(0.95, Math.max(0.35, confidence));
 
   // Concrete Explainability & Reasons List
   const reasons: string[] = [];
@@ -1033,5 +1381,14 @@ export async function runMultiSignalEngine(
     matchedBrand: finalMatchedBrand,
     reasons,
     engineUsed: 'nodejs-multisignal',
+    analysisMeta: {
+      liveProbesPerformed: {
+        dns: dnsProbePerformed,
+        tls: tlsProbePerformed,
+        redirect: redirectProbePerformed,
+      },
+      signalsComputed: Object.keys(signalsMap).filter(k => signalsMap[k as keyof typeof signalsMap] !== null),
+      mode: mode === 'LIVE' ? 'LIVE_ANALYSIS' : 'STATIC_ANALYSIS',
+    },
   };
 }

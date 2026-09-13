@@ -74,6 +74,15 @@ export interface ScanResult {
   timestamp: string;
   engineVersion?: string;
   engineUsed?: 'fastapi-microservice' | 'nodejs-multisignal' | 'python-standalone';
+  analysisMeta?: {
+    liveProbesPerformed?: {
+      dns?: boolean;
+      tls?: boolean;
+      redirect?: boolean;
+    };
+    signalsComputed?: string[];
+    mode?: 'STATIC_ANALYSIS' | 'LIVE_ANALYSIS';
+  };
 }
 
 export interface ScanReport extends ScanResult {

@@ -12,10 +12,16 @@ import {
   ExternalLink,
   ShieldCheck,
   CheckCircle2,
-  Info,
   Server,
   Lock,
-  Binary
+  Binary,
+  Cpu,
+  Shield,
+  Wifi,
+  ArrowRightLeft,
+  CheckCircle,
+  AlertTriangle,
+  Info
 } from 'lucide-react';
 import { ScanResult, AnalysisMode } from '../types';
 import { api, ApiError } from '../services/api';
@@ -67,7 +73,7 @@ export const ScannerTab: React.FC<ScannerTabProps> = ({
   lastScanResult,
 }) => {
   const [inputUrl, setInputUrl] = useState('');
-  const [mode, setMode] = useState<AnalysisMode>('DEMO');
+  const [mode, setMode] = useState<AnalysisMode>('LIVE');
   const [isScanning, setIsScanning] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [currentResult, setCurrentResult] = useState<ScanResult | null>(lastScanResult);
@@ -139,16 +145,16 @@ export const ScannerTab: React.FC<ScannerTabProps> = ({
             </span>
             <div className="inline-flex rounded-xl p-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
               <button
-                id="mode-btn-demo"
+                id="mode-btn-static"
                 type="button"
                 onClick={() => setMode('DEMO')}
                 className={`px-3 py-1 text-xs font-mono font-bold rounded-lg transition-all ${
                   mode === 'DEMO'
-                    ? 'bg-white dark:bg-slate-900 text-cyan-600 dark:text-cyan-400 shadow-xs'
+                    ? 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 shadow-xs'
                     : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
                 }`}
               >
-                DEMO
+                STATIC
               </button>
               <button
                 id="mode-btn-live"
@@ -366,6 +372,103 @@ export const ScannerTab: React.FC<ScannerTabProps> = ({
                     <span className="text-slate-400 dark:text-slate-500 block">TLS Certificate:</span>
                     <span className="font-mono font-bold text-slate-800 dark:text-slate-200 truncate block">
                       {currentResult.targetInfo?.tlsIssuer || 'Standard CA'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Analysis Engine & Probe Metadata */}
+              <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
+                <h3 className="text-xs font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3 flex items-center gap-2">
+                  <Cpu size={14} className="text-cyan-500" />
+                  Analysis Engine & Live Probes
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80">
+                    <span className="text-slate-400 dark:text-slate-500 block mb-1">Engine Used</span>
+                    <span className="font-mono font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+                      {currentResult.engineUsed === 'python-standalone' ? (
+                        <>
+                          <Shield size={12} className="text-emerald-500" />
+                          Python Standalone
+                        </>
+                      ) : (
+                        <>
+                          <Shield size={12} className="text-cyan-500" />
+                          Node.js Multi-Signal
+                        </>
+                      )}
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80">
+                    <span className="text-slate-400 dark:text-slate-500 block mb-1">Analysis Mode</span>
+                    <span className="font-mono font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+                      {currentResult.analysisMeta?.mode === 'LIVE_ANALYSIS' ? (
+                        <>
+                          <Wifi size={12} className="text-emerald-500" />
+                          Live Analysis
+                        </>
+                      ) : (
+                        <>
+                          <Shield size={12} className="text-amber-500" />
+                          Static Analysis
+                        </>
+                      )}
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80">
+                    <span className="text-slate-400 dark:text-slate-500 block mb-1">DNS Probe</span>
+                    <span className="font-mono font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+                      {currentResult.analysisMeta?.liveProbesPerformed?.dns ? (
+                        <>
+                          <CheckCircle size={12} className="text-emerald-500" />
+                          Performed
+                        </>
+                      ) : (
+                        <>
+                          <AlertTriangle size={12} className="text-amber-500" />
+                          Not Performed
+                        </>
+                      )}
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80">
+                    <span className="text-slate-400 dark:text-slate-500 block mb-1">TLS Probe</span>
+                    <span className="font-mono font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+                      {currentResult.analysisMeta?.liveProbesPerformed?.tls ? (
+                        <>
+                          <CheckCircle size={12} className="text-emerald-500" />
+                          Performed
+                        </>
+                      ) : (
+                        <>
+                          <AlertTriangle size={12} className="text-amber-500" />
+                          Not Performed
+                        </>
+                      )}
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80 sm:col-span-2 lg:col-span-1">
+                    <span className="text-slate-400 dark:text-slate-500 block mb-1">Redirect Probe</span>
+                    <span className="font-mono font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+                      {currentResult.analysisMeta?.liveProbesPerformed?.redirect ? (
+                        <>
+                          <CheckCircle size={12} className="text-emerald-500" />
+                          Performed
+                        </>
+                      ) : (
+                        <>
+                          <AlertTriangle size={12} className="text-amber-500" />
+                          Not Performed
+                        </>
+                      )}
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80 sm:col-span-2 lg:col-span-1">
+                    <span className="text-slate-400 dark:text-slate-500 block mb-1">Signals Computed</span>
+                    <span className="font-mono font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+                      <Info size={12} className="text-cyan-500" />
+                      {currentResult.analysisMeta?.signalsComputed?.length || 0} / 9 signals
                     </span>
                   </div>
                 </div>

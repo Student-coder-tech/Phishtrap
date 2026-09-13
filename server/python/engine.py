@@ -327,16 +327,20 @@ def analyze_phishing_target(
         kw_exp = f"Contains suspicious authentication/action keyword: '{unique_kws[0]}'"
 
     # SIGNAL 6: DNS Resolution (Weight: 0.10)
-    dns_score = 0
+    dns_score: Optional[int] = 0
     dns_status = "SAFE"
     dns_exp = "DNS resolution verified successfully."
     dns_evidence: Dict[str, Any] = {}
     resolved_ips: List[str] = []
     dns_resolved = False
+    dns_probe_performed = False
 
     if mode_upper == "LIVE":
+        dns_probe_performed = True
+        original_timeout = socket.getdefaulttimeout()
         try:
-            addr_info = socket.getaddrinfo(hostname, None, timeout=2.0)
+            socket.setdefaulttimeout(2.0)
+            addr_info = socket.getaddrinfo(hostname, None)
             resolved_ips = list(set([item[4][0] for item in addr_info if item[4]]))
             dns_resolved = len(resolved_ips) > 0
             dns_evidence["ips"] = resolved_ips
@@ -352,29 +356,30 @@ def analyze_phishing_target(
             dns_score = 80
             dns_status = "HIGH_RISK"
             dns_exp = f"DNS lookup failed or host unresolvable ({str(e)})."
+        finally:
+            socket.setdefaulttimeout(original_timeout)
     else:
-        if host_score >= 70 or brand_score >= 80:
-            dns_score = 75
-            dns_status = "HIGH_RISK"
-            dns_exp = "Simulated DNS analysis: Fast-flux infrastructure or unallocated high-risk host."
-        else:
-            dns_score = 5
-            dns_status = "SAFE"
-            dns_exp = "Simulated DNS resolution: Active baseline nameservers and valid A records."
+        # DEMO mode (Static Analysis): DNS probe not performed
+        dns_score = None
+        dns_status = "UNAVAILABLE"
+        dns_exp = "DNS resolution probe not performed in Static Analysis mode. Enable LIVE mode for real-time DNS verification."
+        dns_evidence["note"] = "Static analysis only - no live DNS query executed"
 
     # SIGNAL 7: HTTPS / TLS Security (Weight: 0.10)
-    ssl_score = 0
+    ssl_score: Optional[int] = 0
     ssl_status = "SAFE"
     ssl_exp = "TLS certificate handshake verified."
     ssl_evidence: Dict[str, Any] = {"protocol": parsed["protocol"]}
     tls_issuer: Optional[str] = None
     tls_valid_to: Optional[str] = None
+    tls_probe_performed = False
 
     if parsed["protocol"] == "http":
         ssl_score = 80
         ssl_status = "HIGH_RISK"
         ssl_exp = "Unencrypted plain HTTP protocol. Legitimate banking and authentication endpoints enforce TLS."
     elif mode_upper == "LIVE":
+        tls_probe_performed = True
         try:
             ctx = ssl.create_default_context()
             ctx.check_hostname = False
@@ -395,22 +400,18 @@ def analyze_phishing_target(
             ssl_status = "SAFE"
             ssl_exp = f"HTTPS configured ({str(e)})."
     else:
-        if brand_score >= 70 or kw_score >= 60:
-            ssl_score = 60
-            ssl_status = "SUSPICIOUS"
-            ssl_exp = "Simulated short-lived free DV TLS certificate from automated low-trust issuer."
-            tls_issuer = "Let's Encrypt / Free DV CA (Simulated)"
-        else:
-            ssl_score = 0
-            ssl_status = "SAFE"
-            ssl_exp = "Simulated high-assurance EV/OV SSL Certificate from trusted root authority."
-            tls_issuer = "DigiCert Global Root CA (Simulated)"
+        # DEMO mode (Static Analysis): TLS probe not performed
+        ssl_score = None
+        ssl_status = "UNAVAILABLE"
+        ssl_exp = "TLS certificate probe not performed in Static Analysis mode. Enable LIVE mode for real-time certificate verification."
+        ssl_evidence["note"] = "Static analysis only - no live TLS handshake executed"
 
     # SIGNAL 8: Redirect & Cloaking Behavior (Weight: 0.05)
-    redir_score = 0
+    redir_score: Optional[int] = 0
     redir_status = "SAFE"
     redir_exp = "Direct endpoint resolution with no open redirect chaining."
     redir_evidence: Dict[str, Any] = {}
+    redirect_probe_performed = False
 
     open_redir_params = ["url=", "next=", "redirect=", "goto=", "dest=", "target=", "r=", "return="]
     if any(p in parsed["search"].lower() for p in open_redir_params):
@@ -419,11 +420,15 @@ def analyze_phishing_target(
         redir_exp = "Suspicious URL query parameters indicate potential open redirect / interstitial landing attack."
         redir_evidence["openRedirectParameter"] = True
     elif mode_upper == "LIVE":
+        redirect_probe_performed = True
         redir_score = 0
         redir_status = "SAFE"
     else:
-        redir_score = 0
-        redir_status = "SAFE"
+        # DEMO mode (Static Analysis): Redirect probe not performed
+        redir_score = None
+        redir_status = "UNAVAILABLE"
+        redir_exp = "Redirect probe not performed in Static Analysis mode. Enable LIVE mode for real-time redirect detection."
+        redir_evidence["note"] = "Static analysis only - no live HTTP redirect check executed"
 
     # SIGNAL 9: Monitored Enterprise Watchlist (Weight: 0.05)
     wl_score = 0
@@ -466,8 +471,8 @@ def analyze_phishing_target(
         "watchlist": wl_score,
     }
 
-    tot_weighted = sum(signals_map[k] * DEFAULT_WEIGHTS.get(k, 0.1) for k in signals_map)
-    tot_weight = sum(DEFAULT_WEIGHTS.get(k, 0.1) for k in signals_map)
+    tot_weighted = sum(signals_map[k] * DEFAULT_WEIGHTS.get(k, 0.1) for k in signals_map if signals_map[k] is not None)
+    tot_weight = sum(DEFAULT_WEIGHTS.get(k, 0.1) for k in signals_map if signals_map[k] is not None)
     overall_score = round(tot_weighted / tot_weight) if tot_weight > 0 else 0
 
     if brand_score >= 90 and kw_score >= 40:
@@ -518,9 +523,9 @@ def analyze_phishing_target(
         if kw_score >= 40: reasons.append(kw_exp)
         if host_score >= 35: reasons.append(host_exp)
         if url_score >= 35: reasons.append(url_exp)
-        if dns_score >= 50: reasons.append(dns_exp)
-        if ssl_score >= 50: reasons.append(ssl_exp)
-        if redir_score >= 50: reasons.append(redir_exp)
+        if dns_score is not None and dns_score >= 50: reasons.append(dns_exp)
+        if ssl_score is not None and ssl_score >= 50: reasons.append(ssl_exp)
+        if redir_score is not None and redir_score >= 50: reasons.append(redir_exp)
         if wl_score >= 80: reasons.append(wl_exp)
 
         if not reasons:
@@ -658,4 +663,13 @@ def analyze_phishing_target(
         "matchedBrand": final_matched_brand,
         "reasons": reasons,
         "engineUsed": "python-standalone",
+        "analysisMeta": {
+            "liveProbesPerformed": {
+                "dns": dns_probe_performed,
+                "tls": tls_probe_performed,
+                "redirect": redirect_probe_performed,
+            },
+            "signalsComputed": [k for k, v in signals_map.items() if v is not None],
+            "mode": "LIVE_ANALYSIS" if mode_upper == "LIVE" else "STATIC_ANALYSIS",
+        },
     }
