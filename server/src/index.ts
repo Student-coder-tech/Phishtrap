@@ -348,7 +348,7 @@ const app = express();
       const updated = await db.updateWatchlistBrand(id, {
         ...(typeof active === 'boolean' ? { active } : {}),
         ...(name ? { name: name.trim() } : {}),
-        ...(domain ? { domain: domain.trim().toLowerCase() } : {}),
+       ...(domain ? { domain: domain.trim().replace(/^https?:\/\//i, '').split('/')[0].toLowerCase() } : {}),
         ...(category ? { category } : {}),
       });
 

@@ -266,14 +266,16 @@ class DatabaseService {
   private scansCollection: Collection<StoredScan> | null = null;
   private watchlistCollection: Collection<StoredWatchlist> | null = null;
   private isMongoConnected = false;
+  private connectPromise: Promise<boolean> | null = null;
 
   // In-memory fallback structures
   private memoryScans: StoredScan[] = [...INITIAL_SCANS];
   private memoryWatchlist: StoredWatchlist[] = [...INITIAL_WATCHLIST];
 
   constructor() {
-    this.initMongo().catch((err) => {
+    this.connectPromise = this.initMongo().catch((err) => {
       console.warn('[PHISHTRAP DB] MongoDB initialization notice: running with transactional memory persistence.', err?.message || err);
+      return false;
     });
   }
 
@@ -287,8 +289,8 @@ class DatabaseService {
 
     try {
       this.client = new MongoClient(uri, {
-        serverSelectionTimeoutMS: 3000,
-        connectTimeoutMS: 3000,
+        serverSelectionTimeoutMS: 10000,
+        connectTimeoutMS: 5000,
       });
 
       await this.client.connect();
@@ -300,8 +302,12 @@ class DatabaseService {
       await this.scansCollection.createIndex({ createdAt: -1 });
       await this.scansCollection.createIndex({ scanId: 1 }, { unique: true });
       await this.scansCollection.createIndex({ domain: 1 });
-      await this.watchlistCollection.createIndex({ domain: 1 });
-
+      // Drop old non-unique domain index on watchlist if it exists, then recreate as unique
+      try {
+        await this.watchlistCollection.dropIndex('domain_1');
+      } catch {}
+      await this.watchlistCollection.createIndex({ domain: 1 }, { unique: true });
+      
       // Seed if empty
       const scanCount = await this.scansCollection.countDocuments();
       if (scanCount === 0) {
@@ -323,19 +329,28 @@ class DatabaseService {
     }
   }
 
+  public async ensureConnected(): Promise<boolean> {
+    if (this.connectPromise) {
+      await this.connectPromise;
+    }
+    return this.isMongoConnected;
+  }
+
   public async getScans(filters?: { search?: string; risk?: string; brand?: string }): Promise<StoredScan[]> {
+    await this.ensureConnected();
     if (this.isMongoConnected && this.scansCollection) {
       try {
         const query: any = {};
         if (filters?.search) {
-          const regex = new RegExp(filters.search, 'i');
+          const escaped = filters.search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const regex = new RegExp(escaped, 'i');
           query.$or = [{ domain: regex }, { url: regex }, { matchedBrand: regex }];
         }
         if (filters?.risk && filters.risk !== 'ALL') {
           query['risk.level'] = filters.risk;
         }
         if (filters?.brand && filters.brand !== 'ALL') {
-          query.matchedBrand = new RegExp(`^${filters.brand}$`, 'i');
+          query.matchedBrand = new RegExp(`^${filters.brand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
         }
 
         const docs = await this.scansCollection.find(query).sort({ createdAt: -1 }).toArray();
@@ -369,6 +384,7 @@ class DatabaseService {
   }
 
   public async getScanById(id: string): Promise<StoredScan | null> {
+    await this.ensureConnected();
     if (this.isMongoConnected && this.scansCollection) {
       try {
         const doc = await this.scansCollection.findOne({
@@ -383,6 +399,7 @@ class DatabaseService {
   }
 
   public async saveScan(scanData: Omit<StoredScan, '_id' | 'createdAt'>): Promise<StoredScan> {
+    await this.ensureConnected();
     const id = scanData.scanId || 'scn_' + Math.random().toString(36).substring(2, 12);
     const newScan: StoredScan = {
       ...scanData,
@@ -434,6 +451,7 @@ class DatabaseService {
   }
 
   public async getWatchlist(): Promise<StoredWatchlist[]> {
+    await this.ensureConnected();
     if (this.isMongoConnected && this.watchlistCollection) {
       try {
         const docs = await this.watchlistCollection.find().sort({ createdAt: -1 }).toArray();
@@ -446,6 +464,7 @@ class DatabaseService {
   }
 
   public async addWatchlistBrand(brand: { name: string; domain: string; category?: string }): Promise<StoredWatchlist> {
+    await this.ensureConnected();
     const normalizedDomain = brand.domain.trim().toLowerCase();
     const normalizedName = brand.name.trim();
 
@@ -481,6 +500,7 @@ class DatabaseService {
   }
 
   private async getWatchlistByDomain(domain: string): Promise<StoredWatchlist | null> {
+    await this.ensureConnected();
     const normalizedDomain = domain.toLowerCase();
     if (this.isMongoConnected && this.watchlistCollection) {
       try {
@@ -494,6 +514,7 @@ class DatabaseService {
   }
 
   public async updateWatchlistBrand(id: string, updates: Partial<StoredWatchlist>): Promise<StoredWatchlist | null> {
+    await this.ensureConnected();
     const now = new Date().toISOString();
 
     if (this.isMongoConnected && this.watchlistCollection) {
@@ -518,6 +539,7 @@ class DatabaseService {
   }
 
   public async deleteWatchlistBrand(id: string): Promise<boolean> {
+    await this.ensureConnected();
     if (this.isMongoConnected && this.watchlistCollection) {
       try {
         const res = await this.watchlistCollection.deleteOne({
