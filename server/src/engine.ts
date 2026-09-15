@@ -77,6 +77,7 @@ export interface AnalysisOutput {
     dnsResolved?: boolean;
   };
   matchedBrand: string | null;
+  watchlistUrl: string | null;
   reasons: string[];
   engineUsed: 'nodejs-multisignal';
   analysisMeta: {
@@ -1033,33 +1034,49 @@ export async function runMultiSignalEngine(
   // -------------------------------------------------------------
   let wlScore = 0;
   let wlBrand: string | null = null;
+  let wlUrl: string | null = null;
   let wlExp = 'Domain is not flagged under monitored corporate brand assets.';
   const wlEvidence: Record<string, any> = {};
+
+  // Helper: check if scanned hostname matches watchlist domain (exact or authorized subdomain)
+  function isWatchlistDomainMatch(scannedHostname: string, watchlistDomain: string): boolean {
+    const scanned = scannedHostname.toLowerCase();
+    const wl = watchlistDomain.toLowerCase();
+    // Exact match: paypal.com == paypal.com
+    // Authorized subdomain: login.paypal.com ends with .paypal.com
+    return scanned === wl || scanned.endsWith('.' + wl);
+  }
 
   for (const w of watchlist) {
     if (!w.active) continue;
     const wDomain = w.domain.toLowerCase();
-    const wNameKey = w.name.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-    if (wDomain && (hostname.includes(wDomain) || hostname.includes(wNameKey))) {
+    if (wDomain && isWatchlistDomainMatch(hostname, wDomain)) {
       if (hostname !== wDomain && !hostname.endsWith('.' + wDomain)) {
+        // This case shouldn't happen with isWatchlistDomainMatch, but kept for safety
         wlScore = 100;
         wlBrand = w.name;
+        wlUrl = w.domain;
         wlExp = `Matched high-priority monitored watchlist entity: ${w.name} (${w.category})`;
         wlEvidence.watchlistMatch = w.name;
         wlEvidence.category = w.category;
+        wlEvidence.watchlistDomain = w.domain;
         break;
       } else {
+        // Exact match or authorized subdomain (e.g., paypal.com or login.paypal.com)
         wlScore = 0;
         wlBrand = w.name;
+        wlUrl = w.domain;
         wlExp = `Authorized domain for monitored watchlist entity: ${w.name}`;
         wlEvidence.isLegitimateWatchlistDomain = true;
+        wlEvidence.watchlistDomain = w.domain;
         break;
       }
     }
   }
 
   const finalMatchedBrand = matchedBrand || wlBrand;
+  const finalWatchlistUrl = wlUrl;
 
   // -------------------------------------------------------------
   // COMPOSITE RISK SCORE CALCULATION (Weighted, Normalizing)
@@ -1379,6 +1396,7 @@ export async function runMultiSignalEngine(
       dnsResolved,
     },
     matchedBrand: finalMatchedBrand,
+    watchlistUrl: finalWatchlistUrl,
     reasons,
     engineUsed: 'nodejs-multisignal',
     analysisMeta: {

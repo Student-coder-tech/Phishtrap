@@ -162,6 +162,7 @@ const app = express();
           signalDetails: result.signalDetails,
           targetInfo: result.targetInfo,
           matchedBrand: result.matchedBrand,
+          watchlistUrl: result.watchlistUrl,
           reasons: result.reasons,
           timestamp,
           engineUsed,
@@ -329,9 +330,11 @@ const app = express();
         data: created,
       });
     } catch (err: any) {
-      res.status(500).json({
+      const message = err.message || 'Failed to add brand to watchlist.';
+      const status = message.includes('already exists') ? 409 : 500;
+      res.status(status).json({
         success: false,
-        error: { message: err.message || 'Failed to add brand to watchlist.' },
+        error: { message },
       });
     }
   });

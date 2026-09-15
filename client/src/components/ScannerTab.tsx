@@ -352,12 +352,17 @@ export const ScannerTab: React.FC<ScannerTabProps> = ({
                       {currentResult.targetInfo?.subdomainsCount ?? 0}
                     </span>
                   </div>
-                  <div>
-                    <span className="text-slate-400 dark:text-slate-500 block">Matched Brand:</span>
-                    <span className="font-mono font-bold text-rose-500 truncate block">
-                      {currentResult.matchedBrand || 'None (Generic / Baseline)'}
-                    </span>
-                  </div>
+<div>
+                      <span className="text-slate-400 dark:text-slate-500 block">Matched Brand:</span>
+                      <span className="font-mono font-bold text-rose-500 truncate block">
+                        {currentResult.matchedBrand || 'None (Generic / Baseline)'}
+                      </span>
+                      {currentResult.matchedBrand && currentResult.watchlistUrl && (
+                        <span className="text-[10px] font-mono text-cyan-500 truncate block mt-0.5">
+                          Watchlist: {currentResult.watchlistUrl}
+                        </span>
+                      )}
+                    </div>
                   <div>
                     <span className="text-slate-400 dark:text-slate-500 block">DNS Host Resolution:</span>
                     <span className="font-mono font-bold text-slate-800 dark:text-slate-200 truncate block">

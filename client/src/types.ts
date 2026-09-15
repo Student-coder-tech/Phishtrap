@@ -70,6 +70,7 @@ export interface ScanResult {
   signalDetails?: SignalDetail[];
   targetInfo?: TargetInfo;
   matchedBrand: string | null;
+  watchlistUrl: string | null;
   reasons: string[];
   timestamp: string;
   engineVersion?: string;

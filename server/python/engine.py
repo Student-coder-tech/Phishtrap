@@ -433,30 +433,40 @@ def analyze_phishing_target(
     # SIGNAL 9: Monitored Enterprise Watchlist (Weight: 0.05)
     wl_score = 0
     wl_brand: Optional[str] = None
+    wl_url: Optional[str] = None
     wl_exp = "Domain is not flagged under monitored corporate brand assets."
     wl_evidence: Dict[str, Any] = {}
+
+    def is_watchlist_domain_match(scanned_hostname: str, watchlist_domain: str) -> bool:
+        scanned = scanned_hostname.lower()
+        wl = watchlist_domain.lower()
+        return scanned == wl or scanned.endswith('.' + wl)
 
     for w in watchlist:
         if not w.get("active", True):
             continue
         w_domain = w.get("domain", "").lower()
-        w_name_key = re.sub(r"[^a-z0-9]", "", w.get("name", "").lower())
-        if w_domain and (w_domain in hostname or (w_name_key and w_name_key in hostname)):
-            if hostname != w_domain and not hostname.endswith("." + w_domain):
+        if w_domain and is_watchlist_domain_match(hostname, w_domain):
+            if hostname != w_domain and not hostname.endswith('.' + w_domain):
                 wl_score = 100
                 wl_brand = w.get("name")
+                wl_url = w.get("domain")
                 wl_exp = f"Matched high-priority monitored watchlist entity: {w.get('name')} ({w.get('category')})"
                 wl_evidence["watchlistMatch"] = w.get("name")
                 wl_evidence["category"] = w.get("category")
+                wl_evidence["watchlistDomain"] = w.get("domain")
                 break
             else:
                 wl_score = 0
                 wl_brand = w.get("name")
+                wl_url = w.get("domain")
                 wl_exp = f"Authorized domain for monitored watchlist entity: {w.get('name')}"
                 wl_evidence["isLegitimateWatchlistDomain"] = True
+                wl_evidence["watchlistDomain"] = w.get("domain")
                 break
 
     final_matched_brand = matched_brand or wl_brand
+    final_watchlist_url = wl_url
 
     # COMPOSITE SCORING
     signals_map = {
@@ -661,6 +671,7 @@ def analyze_phishing_target(
             "dnsResolved": dns_resolved,
         },
         "matchedBrand": final_matched_brand,
+        "watchlistUrl": final_watchlist_url,
         "reasons": reasons,
         "engineUsed": "python-standalone",
         "analysisMeta": {

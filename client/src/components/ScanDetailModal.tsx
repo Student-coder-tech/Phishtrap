@@ -106,6 +106,11 @@ export const ScanDetailModal: React.FC<ScanDetailModalProps> = ({ scan, onClose 
                     <span className="font-mono font-bold text-rose-500 truncate block">
                       {scan.matchedBrand || 'None (Generic / Baseline)'}
                     </span>
+                    {scan.matchedBrand && scan.watchlistUrl && (
+                      <span className="text-[10px] font-mono text-cyan-500 truncate block mt-0.5">
+                        Watchlist: {scan.watchlistUrl}
+                      </span>
+                    )}
                   </div>
                   <div>
                     <span className="text-slate-400 dark:text-slate-500 block">Analysis Mode:</span>

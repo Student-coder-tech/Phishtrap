@@ -444,13 +444,22 @@ class DatabaseService {
   }
 
   public async addWatchlistBrand(brand: { name: string; domain: string; category?: string }): Promise<StoredWatchlist> {
+    const normalizedDomain = brand.domain.trim().toLowerCase();
+    const normalizedName = brand.name.trim();
+
+    // Check for duplicate domain (case-insensitive)
+    const existingByDomain = await this.getWatchlistByDomain(normalizedDomain);
+    if (existingByDomain) {
+      throw new Error(`Watchlist entry for domain "${normalizedDomain}" already exists.`);
+    }
+
     const id = 'wl_' + Math.random().toString(36).substring(2, 10);
     const now = new Date().toISOString();
     const newEntry: StoredWatchlist = {
       _id: id,
       id,
-      name: brand.name.trim(),
-      domain: brand.domain.trim().toLowerCase(),
+      name: normalizedName,
+      domain: normalizedDomain,
       category: brand.category || 'Banking',
       active: true,
       createdAt: now,
@@ -467,6 +476,19 @@ class DatabaseService {
 
     this.memoryWatchlist.unshift(newEntry);
     return newEntry;
+  }
+
+  private async getWatchlistByDomain(domain: string): Promise<StoredWatchlist | null> {
+    const normalizedDomain = domain.toLowerCase();
+    if (this.isMongoConnected && this.watchlistCollection) {
+      try {
+        const doc = await this.watchlistCollection.findOne({ domain: normalizedDomain });
+        if (doc) return { ...doc, _id: doc._id.toString() };
+      } catch (err) {
+        console.error('[PHISHTRAP DB] MongoDB getWatchlistByDomain error:', err);
+      }
+    }
+    return this.memoryWatchlist.find(w => w.domain.toLowerCase() === normalizedDomain) || null;
   }
 
   public async updateWatchlistBrand(id: string, updates: Partial<StoredWatchlist>): Promise<StoredWatchlist | null> {
