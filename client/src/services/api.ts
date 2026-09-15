@@ -5,7 +5,7 @@
 
 import { OverviewMetrics, ScanReport, ScanResult, WatchlistBrand, HealthStatus } from '../types';
 
-const BASE_URL = import.meta.env.API_BASE_URL || '/api';
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 export class ApiError extends Error {
   constructor(message: string, public status?: number) {
     super(message);
