@@ -278,8 +278,10 @@ class DatabaseService {
   }
 
   private async initMongo(): Promise<boolean> {
-    const uri = process.env.MONGODB_URI;
+    const uri = process.env.MONGODB_URI
+    
     if (!uri) {
+      console.warn('[PHISHTRAP DB] No MONGODB_URI found in environment. Running with in-memory fallback.');
       return false;
     }
 
