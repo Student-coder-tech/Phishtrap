@@ -96,7 +96,7 @@ export interface WatchlistBrand {
   id?: string;
   name: string;
   domain: string;
-  category: 'Banking' | 'E-commerce' | 'Cloud & SaaS' | 'Social Media' | 'Crypto & FinTech' | 'Government' | 'Other';
+  category: 'Banking' | 'E-commerce' | 'Cloud & SaaS' | 'Social Media' | 'Crypto & FinTech' | 'Government' | 'Shopping Sites' | 'Other';
   active: boolean;
   matchCount?: number;
   createdAt: string;

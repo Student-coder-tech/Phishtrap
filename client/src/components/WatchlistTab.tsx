@@ -28,6 +28,7 @@ const CATEGORIES = [
   'E-commerce',
   'Social Media',
   'Government',
+  'Shopping Sites',
   'Other',
 ];
 

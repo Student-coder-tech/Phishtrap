@@ -375,7 +375,15 @@ const app = express();
   app.delete('/api/watchlist/:id', async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const success = await db.deleteWatchlistBrand(id);
+
+      if (!id || typeof id !== 'string' || id.trim().length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Watchlist entry ID is required.' },
+        });
+      }
+
+      const success = await db.deleteWatchlistBrand(id.trim());
 
       if (!success) {
         return res.status(404).json({

@@ -289,8 +289,8 @@ class DatabaseService {
 
     try {
       this.client = new MongoClient(uri, {
-        serverSelectionTimeoutMS: 10000,
-        connectTimeoutMS: 5000,
+        serverSelectionTimeoutMS: 5000,
+        connectTimeoutMS: 3000,
       });
 
       await this.client.connect();
@@ -540,20 +540,18 @@ class DatabaseService {
 
   public async deleteWatchlistBrand(id: string): Promise<boolean> {
     await this.ensureConnected();
+
     if (this.isMongoConnected && this.watchlistCollection) {
-      try {
-        const res = await this.watchlistCollection.deleteOne({
-          $or: [{ id }, { _id: id as any }]
-        });
-        if (res.deletedCount && res.deletedCount > 0) {
-          this.memoryWatchlist = this.memoryWatchlist.filter(w => w.id !== id && w._id !== id);
-          return true;
-        }
-      } catch (err) {
-        console.error('[PHISHTRAP DB] MongoDB deleteWatchlistBrand error:', err);
-      }
+      const res = await this.watchlistCollection.deleteOne({
+        $or: [{ id }, { _id: id as any }]
+      });
+
+      // Always sync memory with MongoDB result
+      this.memoryWatchlist = this.memoryWatchlist.filter(w => w.id !== id && w._id !== id);
+      return res.deletedCount > 0;
     }
 
+    // Fallback: memory-only when MongoDB is not connected
     const initLen = this.memoryWatchlist.length;
     this.memoryWatchlist = this.memoryWatchlist.filter(w => w.id !== id && w._id !== id);
     return this.memoryWatchlist.length < initLen;
