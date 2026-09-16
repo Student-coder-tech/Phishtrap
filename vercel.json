@@ -1,8 +1,11 @@
 {
-  "buildCommand": "npm run build:vercel",
+  "buildCommand": "npm run build --workspace client && node scripts/copy-dist.mjs",
   "outputDirectory": "dist",
   "installCommand": "npm install",
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index" }
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index"
+    }
   ]
 }
