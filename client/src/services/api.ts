@@ -31,7 +31,7 @@ export const api = {
    */
   async checkHealth(): Promise<HealthStatus> {
     try {
-      const res = await fetch(`${BASE_URL}/health`);
+      const res = await fetch(`${BASE_URL}/api/health`);
       return await res.json();
     } catch (err: any) {
       return {
@@ -49,7 +49,7 @@ export const api = {
    * Fetch overview metrics and recent scans
    */
   async fetchOverview(): Promise<OverviewMetrics> {
-    const res = await fetch(`${BASE_URL}/overview`);
+    const res = await fetch(`${BASE_URL}/api/overview`);
     return await handleResponse<OverviewMetrics>(res);
   },
 
@@ -57,7 +57,7 @@ export const api = {
    * Run multi-signal phishing scan on target domain/URL
    */
   async analyzeDomain(domain: string, mode: 'DEMO' | 'LIVE' = 'DEMO'): Promise<ScanResult> {
-    const res = await fetch(`${BASE_URL}/scanner/analyze`, {
+    const res = await fetch(`${BASE_URL}/api/scanner/analyze`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ domain, mode }),
@@ -75,7 +75,7 @@ export const api = {
     if (filters?.brand && filters.brand !== 'ALL') params.append('brand', filters.brand);
 
     const qs = params.toString();
-    const url = `${BASE_URL}/reports${qs ? `?${qs}` : ''}`;
+    const url = `${BASE_URL}/api/reports${qs ? `?${qs}` : ''}`;
     const res = await fetch(url);
     return await handleResponse<ScanReport[]>(res);
   },
@@ -84,7 +84,7 @@ export const api = {
    * Get active and monitored watchlist brands
    */
   async fetchWatchlist(): Promise<WatchlistBrand[]> {
-    const res = await fetch(`${BASE_URL}/watchlist`);
+    const res = await fetch(`${BASE_URL}/api/watchlist`);
     return await handleResponse<WatchlistBrand[]>(res);
   },
 
@@ -92,7 +92,7 @@ export const api = {
    * Add a new brand to monitored watchlist
    */
   async addWatchlistBrand(brand: { name: string; domain: string; category?: string }): Promise<WatchlistBrand> {
-    const res = await fetch(`${BASE_URL}/watchlist`, {
+    const res = await fetch(`${BASE_URL}/api/watchlist`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(brand),
@@ -104,7 +104,7 @@ export const api = {
    * Toggle or update a watchlist brand entry
    */
   async toggleWatchlistBrand(id: string, active: boolean): Promise<WatchlistBrand> {
-    const res = await fetch(`${BASE_URL}/watchlist/${id}`, {
+    const res = await fetch(`${BASE_URL}/api/watchlist/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ active }),
@@ -116,7 +116,7 @@ export const api = {
    * Delete a watchlist brand
    */
   async deleteWatchlistBrand(id: string): Promise<void> {
-    const res = await fetch(`${BASE_URL}/watchlist/${id}`, {
+    const res = await fetch(`${BASE_URL}/api/watchlist/${id}`, {
       method: 'DELETE',
     });
     await handleResponse<{ success: boolean }>(res);
@@ -126,6 +126,6 @@ export const api = {
    * URL for direct file export downloads
    */
   getExportUrl(format: 'json' | 'csv'): string {
-    return `${BASE_URL}/reports/export/${format}`;
+    return `${BASE_URL}/api/reports/export/${format}`;
   },
 };
