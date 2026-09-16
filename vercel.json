@@ -1,6 +1,6 @@
 {
-  "buildCommand": "npm run build",
-  "outputDirectory": "client/dist",
+  "buildCommand": "bash vercel-build.sh",
+  "outputDirectory": "dist",
   "installCommand": "npm install",
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/index" }
