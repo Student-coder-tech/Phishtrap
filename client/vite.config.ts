@@ -10,10 +10,6 @@ export default defineConfig({
       '@': path.resolve(__dirname, '.'),
     },
   },
-  build: {
-    outDir: '../dist',
-    emptyOutDir: true,
-  },
   server: {
     proxy: {
       '/api': {
