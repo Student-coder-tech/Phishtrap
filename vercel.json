@@ -1,5 +1,5 @@
 {
-  "buildCommand": "bash vercel-build.sh",
+  "buildCommand": "npm run build --workspace client && node -e \"const fs=require('fs'),p=require('path');function c(s,d){fs.mkdirSync(d,{recursive:true});for(const f of fs.readdirSync(s)){const sp=p.join(s,f),dp=p.join(d,f);fs.statSync(sp).isDirectory()?c(sp,dp):fs.copyFileSync(sp,dp)}}fs.rmSync('dist',{recursive:true,force:true});c('client/dist','dist')\" && npm run build --workspace server",
   "outputDirectory": "dist",
   "installCommand": "npm install",
   "rewrites": [
